@@ -1,6 +1,7 @@
 {
   "name": "git-archaeologist-mcp",
   "version": "0.1.0",
+   "license": "MIT",
   "type": "module",
   "bin": {
     "git-archaeologist": "dist/index.js"
@@ -29,5 +30,5 @@
     "@types/node": "^22.19.21",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
-  }
+  },
 }
