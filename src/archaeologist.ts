@@ -75,6 +75,30 @@ export class Archaeologist {
     return out;
   }
 
+  // Rank contributors to a path by commit count, weighted toward recent work.
+  async experts(path: string): Promise<string> {
+    const log = await this.git.log({ file: path, maxCount: 300 });
+    if (log.all.length === 0) {
+      return `No commit history found for ${path}.`;
+    }
+    const now = Date.now();
+    const score: Record<string, number> = {};
+    for (const c of log.all) {
+      const ageDays = (now - new Date(c.date).getTime()) / 86_400_000;
+      const weight = Math.exp(-ageDays / 180); // ~6-month decay
+      score[c.author_name] = (score[c.author_name] || 0) + weight;
+    }
+    const ranked = Object.entries(score)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    const lines = ranked.map(
+      ([name, s], i) => `${i + 1}. ${name} (recency-weighted score ${s.toFixed(2)})`
+    );
+    return `Top contributors to ${path}:\n${lines.join("\n")}`;
+  }
+
+
+
   async explain(file: string, start: number, end: number): Promise<string> {
     const blame = await this.blameRange(file, start, end);
     const shas = [...new Set(blame.map((b) => b.sha))];

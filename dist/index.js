@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -11,7 +12,21 @@ server.tool("why_does_this_exist", {
     startLine: z.number().int().positive(),
     endLine: z.number().int().positive(),
 }, async ({ file, startLine, endLine }) => {
-    const story = await dig.explain(file, startLine, endLine);
-    return { content: [{ type: "text", text: story }] };
+    try {
+        const story = await dig.explain(file, startLine, endLine);
+        return { content: [{ type: "text", text: story }] };
+    }
+    catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
+});
+server.tool("who_knows_about", { path: z.string().describe("File path to find expert contributors for") }, async ({ path }) => {
+    try {
+        const result = await dig.experts(path);
+        return { content: [{ type: "text", text: result }] };
+    }
+    catch (e) {
+        return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+    }
 });
 await server.connect(new StdioServerTransport());
