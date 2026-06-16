@@ -1,11 +1,13 @@
 import { simpleGit, SimpleGit } from "simple-git";
 import { Octokit } from "@octokit/rest";
+import { Cache } from "./cache.js";
 
 interface BlameLine { sha: string; author: string; line: string; }
 
 export class Archaeologist {
   private git: SimpleGit;
   private gh = new Octokit({ auth: process.env.GITHUB_TOKEN });
+  private cache = new Cache();
 
   constructor(repoPath: string) { this.git = simpleGit(repoPath); }
 
@@ -37,14 +39,18 @@ export class Archaeologist {
     return m ? { owner: m[1], repo: m[2] } : null;
   }
 
-  // Find the PR(s) that contained a given commit SHA.
+  // Find the PR(s) that contained a given commit SHA (cached).
   async prsForCommit(owner: string, repo: string, sha: string) {
+    const key = `prs:${owner}/${repo}:${sha}`;
+    const hit = this.cache.get<ReturnType<typeof mapPrs>>(key);
+    if (hit) return hit;
+
     const res = await this.gh.repos.listPullRequestsAssociatedWithCommit({
       owner, repo, commit_sha: sha,
     });
-    return res.data.map((p) => ({
-      number: p.number, title: p.title, body: p.body || "", url: p.html_url,
-    }));
+    const out = mapPrs(res.data);
+    this.cache.set(key, out);
+    return out;
   }
 
   // Parse "fixes #12", "closes #34", etc. from any text.
@@ -55,12 +61,18 @@ export class Archaeologist {
     return [...new Set([...matches].map((m) => Number(m[1])))];
   }
 
-  // Fetch a single issue's title, body, and URL.
+  // Fetch a single issue's title, body, and URL (cached).
   async issue(owner: string, repo: string, number: number) {
+    const key = `issue:${owner}/${repo}:${number}`;
+    const hit = this.cache.get<{ number: number; title: string; body: string; url: string }>(key);
+    if (hit) return hit;
+
     const res = await this.gh.issues.get({ owner, repo, issue_number: number });
-    return {
+    const out = {
       number, title: res.data.title, body: res.data.body || "", url: res.data.html_url,
     };
+    this.cache.set(key, out);
+    return out;
   }
 
   async explain(file: string, start: number, end: number): Promise<string> {
@@ -95,4 +107,13 @@ export class Archaeologist {
     }
     return parts.join("\n");
   }
+}
+
+// Shared mapper so cached and live return shapes match.
+function mapPrs(
+  data: Array<{ number: number; title: string; body: string | null; html_url: string }>
+) {
+  return data.map((p) => ({
+    number: p.number, title: p.title, body: p.body || "", url: p.html_url,
+  }));
 }

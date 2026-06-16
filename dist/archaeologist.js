@@ -1,8 +1,10 @@
 import { simpleGit } from "simple-git";
 import { Octokit } from "@octokit/rest";
+import { Cache } from "./cache.js";
 export class Archaeologist {
     git;
     gh = new Octokit({ auth: process.env.GITHUB_TOKEN });
+    cache = new Cache();
     constructor(repoPath) { this.git = simpleGit(repoPath); }
     async blameRange(file, start, end) {
         const raw = await this.git.raw([
@@ -33,26 +35,36 @@ export class Archaeologist {
         const m = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
         return m ? { owner: m[1], repo: m[2] } : null;
     }
-    // Find the PR(s) that contained a given commit SHA.
+    // Find the PR(s) that contained a given commit SHA (cached).
     async prsForCommit(owner, repo, sha) {
+        const key = `prs:${owner}/${repo}:${sha}`;
+        const hit = this.cache.get(key);
+        if (hit)
+            return hit;
         const res = await this.gh.repos.listPullRequestsAssociatedWithCommit({
             owner, repo, commit_sha: sha,
         });
-        return res.data.map((p) => ({
-            number: p.number, title: p.title, body: p.body || "", url: p.html_url,
-        }));
+        const out = mapPrs(res.data);
+        this.cache.set(key, out);
+        return out;
     }
     // Parse "fixes #12", "closes #34", etc. from any text.
     linkedIssueNumbers(text) {
         const matches = text.matchAll(/\b(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?)\s+#(\d+)/gi);
         return [...new Set([...matches].map((m) => Number(m[1])))];
     }
-    // Fetch a single issue's title, body, and URL.
+    // Fetch a single issue's title, body, and URL (cached).
     async issue(owner, repo, number) {
+        const key = `issue:${owner}/${repo}:${number}`;
+        const hit = this.cache.get(key);
+        if (hit)
+            return hit;
         const res = await this.gh.issues.get({ owner, repo, issue_number: number });
-        return {
+        const out = {
             number, title: res.data.title, body: res.data.body || "", url: res.data.html_url,
         };
+        this.cache.set(key, out);
+        return out;
     }
     async explain(file, start, end) {
         const blame = await this.blameRange(file, start, end);
@@ -85,4 +97,10 @@ export class Archaeologist {
         }
         return parts.join("\n");
     }
+}
+// Shared mapper so cached and live return shapes match.
+function mapPrs(data) {
+    return data.map((p) => ({
+        number: p.number, title: p.title, body: p.body || "", url: p.html_url,
+    }));
 }
